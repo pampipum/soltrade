@@ -27,14 +27,8 @@ async function fetchMarketData() {
   const results = {};
   for (const [key, url] of Object.entries(rawUrls)) {
     try {
-      const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
-      const res = await fetch(proxyUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Origin': 'http://localhost:5173',
-          'Referer': 'http://localhost:5173/'
-        }
-      });
+      const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
+      const res = await fetch(proxyUrl);
       results[key] = {
         ok: res.ok,
         status: res.status,
