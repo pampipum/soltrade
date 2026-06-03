@@ -180,8 +180,40 @@ export function detectBullishDivergence(data, rsiValues) {
   return { active: false, detail: 'No clear swing lows' };
 }
 
+// Detect if a daily candle is a liquidity sweep (very long lower shadow)
+export function detectLiquiditySweep(candle) {
+  if (!candle) return { active: false, detail: 'No candle data' };
+  const body = Math.abs(candle.close - candle.open);
+  const lowerShadow = Math.min(candle.close, candle.open) - candle.low;
+  
+  const totalRange = candle.high - candle.low;
+  if (totalRange === 0) return { active: false, detail: 'No range' };
+  
+  // A liquidity sweep occurs when the lower wick is at least 2.5x the body, or is >60% of the entire candle length (for small body dojis)
+  const isSweep = lowerShadow >= body * 2.5 || (body < 0.1 && lowerShadow > totalRange * 0.6);
+  
+  if (isSweep) {
+    return {
+      active: true,
+      detail: `Wicked to $${candle.low.toFixed(2)} (${Math.round(lowerShadow / totalRange * 100)}% lower shadow)`
+    };
+  }
+  
+  return {
+    active: false,
+    detail: `Wick too short (${Math.round(lowerShadow / totalRange * 100)}% shadow)`
+  };
+}
+
 // Calculate the full dashboard state
-export function getDashboardState(dailyKlines, fourHourKlines, higherLowThreshold = 76.73) {
+export function getDashboardState(
+  dailyKlines,
+  fourHourKlines,
+  futuresPremiumIndex = null,
+  openInterestHist = null,
+  btcKlines = null,
+  higherLowThreshold = 76.73
+) {
   if (!dailyKlines || dailyKlines.length < 200) return null;
   
   const daily = parseKlines(dailyKlines);
@@ -216,13 +248,53 @@ export function getDashboardState(dailyKlines, fourHourKlines, higherLowThreshol
   const volumeRatio = currentVolume / avg30dVolume;
   const volumeNeeded = avg30dVolume * 1.5;
   
-  // Reversal Candle
+  // Reversal Candle & Liquidity Sweep
   const reversalCandleCheck = detectReversalCandle(daily[len - 1]);
+  const sweepCheck = detectLiquiditySweep(daily[len - 1]);
+  const prevSweepCheck = detectLiquiditySweep(daily[len - 2]);
+  
+  const isLiquiditySweep = sweepCheck.active || prevSweepCheck.active;
+  const liquiditySweepDetail = sweepCheck.active 
+    ? sweepCheck.detail 
+    : (prevSweepCheck.active ? `Yesterday: ${prevSweepCheck.detail}` : 'Wicks are short');
   
   // Bullish RSI Divergence
   const bullishDivergenceCheck = detectBullishDivergence(daily, rsiList);
+
+  // 1. Funding Rate calculation
+  let fundingRate = null;
+  if (futuresPremiumIndex && futuresPremiumIndex.lastFundingRate !== undefined) {
+    fundingRate = parseFloat(futuresPremiumIndex.lastFundingRate) * 100;
+  }
   
-  // Checklist evaluations
+  // 2. Open Interest drawdown calculation (48 hours lookback)
+  let oiChangePct = null;
+  let maxOI = 0;
+  let currentOI = 0;
+  if (openInterestHist && Array.isArray(openInterestHist) && openInterestHist.length > 0) {
+    const oiValues = openInterestHist.map(o => parseFloat(o.sumOpenInterest)).filter(v => !isNaN(v));
+    if (oiValues.length > 0) {
+      maxOI = Math.max(...oiValues);
+      currentOI = oiValues[oiValues.length - 1];
+      oiChangePct = maxOI > 0 ? ((currentOI - maxOI) / maxOI) * 100 : 0;
+    }
+  }
+
+  // 3. BTC 4h Trend calculations
+  let btcPrice = 0;
+  let btcMA20 = 0;
+  let isBtcTrendBullish = false;
+  if (btcKlines && Array.isArray(btcKlines) && btcKlines.length >= 20) {
+    const btcParsed = parseKlines(btcKlines);
+    const btcMA20List = calculateSMA(btcParsed, 20);
+    if (btcMA20List && btcMA20List.length > 0) {
+      btcPrice = btcParsed[btcParsed.length - 1].close;
+      btcMA20 = btcMA20List[btcMA20List.length - 1];
+      isBtcTrendBullish = btcPrice > btcMA20;
+    }
+  }
+  
+  // Checklist evaluations (now 9 triggers)
   const checklist = {
     priceAboveMA20: {
       id: 'a',
@@ -233,7 +305,6 @@ export function getDashboardState(dailyKlines, fourHourKlines, higherLowThreshol
     rsiCrossedAbove30: {
       id: 'b',
       title: 'RSI crossed above 30',
-      // Check if RSI is above 30 and recently crossed it or turning up
       active: currentRSI > 30 && prevRSI <= 30,
       detail: `${currentRSI?.toFixed(1) || 'N/A'} (prev ${prevRSI?.toFixed(1) || 'N/A'})`
     },
@@ -246,7 +317,6 @@ export function getDashboardState(dailyKlines, fourHourKlines, higherLowThreshol
     volumeCapitulation: {
       id: 'd',
       title: 'Volume capitulation',
-      // Volume > 1.5x of 30d avg on a green candle or massive volume
       active: volumeRatio >= 1.5 && daily[len - 1].close > daily[len - 1].open,
       detail: `${(currentVolume/1e6).toFixed(1)}M vs ${(volumeNeeded/1e6).toFixed(1)}M needed (${volumeRatio.toFixed(2)}x)`
     },
@@ -258,9 +328,27 @@ export function getDashboardState(dailyKlines, fourHourKlines, higherLowThreshol
     },
     reversalCandle: {
       id: 'f',
-      title: 'Reversal candle',
-      active: reversalCandleCheck.isReversal,
-      detail: reversalCandleCheck.detail
+      title: 'Reversal candle / Wick sweep',
+      active: reversalCandleCheck.isReversal || isLiquiditySweep,
+      detail: reversalCandleCheck.isReversal ? reversalCandleCheck.detail : liquiditySweepDetail
+    },
+    leverageFlush: {
+      id: 'g',
+      title: 'Leverage Flush (OI Drawdown)',
+      active: oiChangePct !== null && oiChangePct <= -15, // collapse of 15% or deeper
+      detail: oiChangePct !== null ? `${oiChangePct.toFixed(1)}% from peak (${(currentOI/1e6).toFixed(0)}M vs ${(maxOI/1e6).toFixed(0)}M peak)` : 'Offline (CORS)'
+    },
+    negativeFunding: {
+      id: 'h',
+      title: 'Short Crowding (Negative Funding)',
+      active: fundingRate !== null && fundingRate < 0,
+      detail: fundingRate !== null ? `${fundingRate.toFixed(4)}%` : 'Offline (CORS)'
+    },
+    btcTrendSupport: {
+      id: 'i',
+      title: 'BTC 4H Trend Support',
+      active: isBtcTrendBullish,
+      detail: `BTC $${(btcPrice/1e3).toFixed(1)}k vs MA20 $${(btcMA20/1e3).toFixed(1)}k`
     }
   };
 
@@ -319,6 +407,12 @@ export function getDashboardState(dailyKlines, fourHourKlines, higherLowThreshol
     ma200Distance,
     low14d,
     volumeRatio,
+    fundingRate,
+    openInterest: currentOI,
+    openInterestDrawdown: oiChangePct,
+    btcPrice,
+    btcMA20,
+    isBtcTrendBullish,
     checklist,
     bearSignals,
     fourHour: fourHourState,

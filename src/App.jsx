@@ -9,6 +9,9 @@ import { RefreshCw, Radio, TrendingDown, ArrowDownRight, ArrowUpRight, Coins } f
 export default function App() {
   const [dailyKlines, setDailyKlines] = useState([]);
   const [fourHourKlines, setFourHourKlines] = useState([]);
+  const [futuresPremiumIndex, setFuturesPremiumIndex] = useState(null);
+  const [openInterestHist, setOpenInterestHist] = useState([]);
+  const [btcKlines, setBtcKlines] = useState([]);
   const [timeframe, setTimeframe] = useState('1d'); // '1d' or '4h'
   
   const [wsStatus, setWsStatus] = useState('connecting');
@@ -57,21 +60,51 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      // Fetch 300 daily candles and 300 4h candles
-      const [dailyRes, fourHourRes] = await Promise.all([
+      // 1. Fetch Spot data (supports CORS natively and MUST succeed)
+      const [dailyRes, fourHourRes, btcRes] = await Promise.all([
         fetch('https://api.binance.com/api/v3/klines?symbol=SOLUSDT&interval=1d&limit=300'),
-        fetch('https://api.binance.com/api/v3/klines?symbol=SOLUSDT&interval=4h&limit=300')
+        fetch('https://api.binance.com/api/v3/klines?symbol=SOLUSDT&interval=4h&limit=300'),
+        fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=4h&limit=50')
       ]);
 
       if (!dailyRes.ok || !fourHourRes.ok) {
-        throw new Error('Failed to retrieve candle data from Binance API.');
+        throw new Error('Failed to retrieve spot candle data from Binance API.');
       }
 
       const dailyData = await dailyRes.json();
       const fourHourData = await fourHourRes.json();
+      
+      let btcData = [];
+      if (btcRes && btcRes.ok) {
+        btcData = await btcRes.json();
+      }
+
+      // 2. Fetch Futures data (blocked by CORS, routed via proxy with absolute try/catch safety)
+      let premiumData = null;
+      try {
+        const premiumRes = await fetch('https://corsproxy.io/?https://fapi.binance.com/fapi/v1/premiumIndex?symbol=SOLUSDT');
+        if (premiumRes.ok) {
+          premiumData = await premiumRes.json();
+        }
+      } catch (err) {
+        console.warn('CORS or Network block on futures Premium Index:', err);
+      }
+      
+      let oiData = [];
+      try {
+        const oiRes = await fetch('https://corsproxy.io/?https://fapi.binance.com/fapi/v1/openInterestHist?symbol=SOLUSDT&period=1h&limit=48');
+        if (oiRes.ok) {
+          oiData = await oiRes.json();
+        }
+      } catch (err) {
+        console.warn('CORS or Network block on futures Open Interest history:', err);
+      }
 
       setDailyKlines(dailyData);
       setFourHourKlines(fourHourData);
+      setFuturesPremiumIndex(premiumData);
+      setOpenInterestHist(oiData);
+      setBtcKlines(btcData);
       
       const current = parseFloat(dailyData[dailyData.length - 1][4]);
       setPrevPrice(current);
@@ -162,14 +195,63 @@ export default function App() {
     };
   }, [loading, error]);
 
+  // Periodic updates for leverage and macro feeds (every 30 seconds)
+  useEffect(() => {
+    if (loading || error) return;
+    
+    const pollLeverageFeeds = async () => {
+      // 1. Poll spot BTC (native CORS)
+      try {
+        const btcRes = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=4h&limit=50');
+        if (btcRes.ok) {
+          const btcData = await btcRes.json();
+          setBtcKlines(btcData);
+        }
+      } catch (err) {
+        console.warn('Failed to poll spot BTC feed:', err);
+      }
+
+      // 2. Poll futures Premium Index (proxied, fail-safe)
+      try {
+        const premiumRes = await fetch('https://corsproxy.io/?https://fapi.binance.com/fapi/v1/premiumIndex?symbol=SOLUSDT');
+        if (premiumRes.ok) {
+          const premiumData = await premiumRes.json();
+          setFuturesPremiumIndex(premiumData);
+        }
+      } catch (err) {
+        console.warn('Failed to poll futures Premium Index (CORS/Network):', err);
+      }
+
+      // 3. Poll futures Open Interest (proxied, fail-safe)
+      try {
+        const oiRes = await fetch('https://corsproxy.io/?https://fapi.binance.com/fapi/v1/openInterestHist?symbol=SOLUSDT&period=1h&limit=48');
+        if (oiRes.ok) {
+          const oiData = await oiRes.json();
+          setOpenInterestHist(oiData);
+        }
+      } catch (err) {
+        console.warn('Failed to poll futures Open Interest (CORS/Network):', err);
+      }
+    };
+    
+    const interval = setInterval(pollLeverageFeeds, 30000);
+    return () => clearInterval(interval);
+  }, [loading, error]);
+
   // Compute live state
-  const dashboardState = getDashboardState(dailyKlines, fourHourKlines);
+  const dashboardState = getDashboardState(
+    dailyKlines,
+    fourHourKlines,
+    futuresPremiumIndex,
+    openInterestHist,
+    btcKlines
+  );
 
   if (loading) {
     return (
       <div className="status-screen">
         <div className="loader-ring"></div>
-        <p>FETCHING HISTORICAL CANDLES...</p>
+        <p>FETCHING HISTORICAL AND LEVERAGE FEEDS...</p>
       </div>
     );
   }
@@ -204,6 +286,12 @@ export default function App() {
     ma200Distance,
     low14d,
     volumeRatio,
+    fundingRate,
+    openInterest,
+    openInterestDrawdown,
+    btcPrice,
+    btcMA20,
+    isBtcTrendBullish,
     checklist,
     bearSignals,
     fourHour,
@@ -225,24 +313,36 @@ export default function App() {
   const activeCount = Object.values(checklist).filter(item => item.active).length;
   const activeBearCount = Object.values(bearSignals).filter(item => item.active).length;
 
-  // Dynamic recommendation logic
+  // Dynamic recommendation logic (Institutional Overrides)
   let action = {
     class: 'action-red',
     text: 'STAY OUT — Too early, downtrend intact',
-    desc: 'The setup is actively worsening. Do not attempt to catch falling knives. Reversal technicals are not confirmed.'
+    desc: 'The setup is actively bearish. Sellers dominate both spot and derivatives. Do not catch wicks. Wait for indicators to resolve.'
   };
 
-  if (activeCount >= 3 && activeBearCount < 4) {
-    action = {
-      class: 'action-green',
-      text: 'BUY TRIGGER ACTIVE — Technical bottoming signs',
-      desc: 'Significant triggers are active. Reversal candles or bullish divergences indicate momentum rotation. Build size.'
-    };
-  } else if (activeCount >= 1 && activeBearCount < 4) {
+  const isLeverageFlushActive = openInterestDrawdown <= -15;
+
+  if (activeCount >= 4) {
+    if (isBtcTrendBullish) {
+      action = {
+        class: 'action-green',
+        text: 'BUY / ACCUMULATE — Strong bottoming confirmation',
+        desc: `Market triggers are active (${activeCount}/9). BTC is trading above its 4H MA20, confirming trend stabilization. ${
+          isLeverageFlushActive ? 'LEVERAGE FLUSH CONFIRMED: High retail liquidation has washed out leveraged longs.' : ''
+        }`
+      };
+    } else {
+      action = {
+        class: 'action-yellow',
+        text: 'MUTED ACCUMULATION — BTC Bearish Trend Override',
+        desc: `SOL is showing local strength (${activeCount}/9 triggers active), but BTC remains in a bearish trend (BTC below 4H MA20). Build size slowly using spot, or wait for BTC confirmation.`
+      };
+    }
+  } else if (activeCount >= 2) {
     action = {
       class: 'action-yellow',
-      text: 'WATCH CLOSELY — Initial signs of exhaustion',
-      desc: 'Accumulating triggers are visible. Check RSI levels and watch 4h candles for structure shifts. Prepare entry order.'
+      text: 'WATCH CLOSELY — Initial accumulation triggers',
+      desc: `Checklist is picking up momentum (${activeCount}/9 triggers). Watch for funding rates to dip further negative and monitor BTC's structure.`
     };
   }
 
@@ -272,12 +372,26 @@ export default function App() {
 
         <div className="status-badges">
           <div className="badge-item">
-            <span className="badge-label">14d Low:</span>
-            <span className="badge-val font-mono">${low14d.toFixed(2)}</span>
+            <span className="badge-label">BTC Price:</span>
+            <span className="badge-val font-mono">
+              {btcPrice ? `$${(btcPrice/1000).toFixed(1)}k` : 'Loading...'}
+            </span>
           </div>
           <div className="badge-item">
-            <span className="badge-label">Volume Ratio:</span>
-            <span className="badge-val font-mono">{volumeRatio.toFixed(2)}x</span>
+            <span className="badge-label">Funding Rate:</span>
+            <span className={`badge-val font-mono ${fundingRate < 0 ? 'text-green' : ''}`}>
+              {fundingRate ? `${fundingRate.toFixed(4)}%` : '0.0000%'}
+            </span>
+          </div>
+          <div className="badge-item">
+            <span className="badge-label">OI Drawdown:</span>
+            <span className={`badge-val font-mono ${openInterestDrawdown <= -15 ? 'text-green' : ''}`}>
+              {openInterestDrawdown ? `${openInterestDrawdown.toFixed(1)}%` : '0.0%'}
+            </span>
+          </div>
+          <div className="badge-item">
+            <span className="badge-label">14d Low:</span>
+            <span className="badge-val font-mono">${low14d.toFixed(2)}</span>
           </div>
           <div className={`connection-badge ${wsStatus}`}>
             <Radio size={12} className={wsStatus === 'connected' ? 'pulse-icon' : ''} />

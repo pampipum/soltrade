@@ -23,14 +23,14 @@ export default function TriggerChecklist({ checklist, bearSignals, fourHour, pri
             <h2>BUY TRIGGER CHECKLIST</h2>
           </div>
           <span className={`checklist-score ${activeCount > 0 ? 'score-active' : 'score-zero'}`}>
-            {activeCount}/6 ACTIVE
+            {activeCount}/9 ACTIVE
           </span>
         </div>
         
         <div className="progress-bar-container">
           <div 
             className="progress-bar-fill" 
-            style={{ width: `${(activeCount / 6) * 100}%`, backgroundColor: activeCount > 2 ? 'var(--status-green)' : 'var(--sol-purple)' }}
+            style={{ width: `${(activeCount / 9) * 100}%`, backgroundColor: activeCount > 4 ? 'var(--status-green)' : 'var(--sol-purple)' }}
           />
         </div>
 
@@ -52,6 +52,20 @@ export default function TriggerChecklist({ checklist, bearSignals, fourHour, pri
             </div>
           ))}
         </div>
+
+        {checklist.btcTrendSupport && !checklist.btcTrendSupport.active && (
+          <div className="btc-warning-banner">
+            <AlertTriangle size={16} />
+            <span>BTC Bearish Override: SOL buy setups have low probability until BTC reclaims its 4H MA20.</span>
+          </div>
+        )}
+
+        {checklist.leverageFlush && checklist.leverageFlush.active && (
+          <div className="oi-success-banner">
+            <CheckCircle2 size={16} />
+            <span>Leverage Flushed: Derivatives long squeeze has cleared downside risk.</span>
+          </div>
+        )}
       </div>
 
       {/* 2. BEAR MARKET SIGNALS */}

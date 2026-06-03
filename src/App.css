@@ -864,3 +864,34 @@
   text-align: center;
   padding: 2rem;
 }
+
+/* 11. DYNAMIC CHECKLIST BANNERS */
+.btc-warning-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 61, 113, 0.06);
+  border: 1px dashed rgba(255, 61, 113, 0.25);
+  border-radius: 8px;
+  color: var(--text-red);
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.4;
+  margin-top: 0.5rem;
+}
+
+.oi-success-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: rgba(0, 230, 118, 0.06);
+  border: 1px dashed rgba(0, 230, 118, 0.25);
+  border-radius: 8px;
+  color: var(--text-green);
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.4;
+  margin-top: 0.5rem;
+}
