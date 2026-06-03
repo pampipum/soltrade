@@ -97,18 +97,25 @@ async function generateDeepSeekReport(state) {
   const activeBearCount = Object.values(state.bearSignals).filter(item => item.active).length;
 
   const promptText = `
+You are analyzing the market for a swing trader (holding period: days to weeks). Do NOT recommend scalps, micro-trades, or short-term day trading.
+
+Current SOL & BTC Market Data:
 SOL Price: $${state.price.toFixed(2)}
 SOL Daily RSI: ${state.rsi.toFixed(1)}
 SOL Funding Rate: ${state.fundingRate !== null ? state.fundingRate.toFixed(4) + '%' : 'Offline/CORS'}
 SOL OI Drawdown: ${state.openInterestDrawdown !== null ? state.openInterestDrawdown.toFixed(1) + '%' : 'Offline/CORS'}
 SOL 14d Low: $${state.low14d.toFixed(2)}
-BTC Price: $${state.btcPrice.toLocaleString()} (vs MA20 $${state.btcMA20.toLocaleString()})
+BTC Price: $${state.btcPrice.toLocaleString()} (vs 4H MA20 $${state.btcMA20.toLocaleString()})
 BTC Trend status is: ${state.isBtcTrendBullish ? 'BULLISH (Above 4H MA20)' : 'BEARISH (Below 4H MA20)'}
 
 Active Triggers Checklist: ${activeTriggers.join(', ') || 'None'}
-Bear Market moving averages: ${activeBearCount}/4 active (Full Death Cross)
+Bear Market moving averages: ${activeBearCount}/4 active (Bearish structure)
 
-Provide a sharp, subjective reading of the setup as an institutional investor. Pick a side (Buy, Hold/Watch, Stay Out) and explain the logic clearly and concisely. Point out the BTC correlation state, the funding premium sentiment, and the liquidation (OI) cleanup status. Swearing is permitted when it lands. Output directly in markdown format.
+Provide a sharp, subjective reading of this setup for a swing trader.
+1. Decide on a single, clear recommendation: Buy (for a swing position), Hold/Watch (waiting for setup/trend confirmation), or Stay Out (trend is hostile, risk too high).
+2. The recommendation MUST be consistent with the macro structure. If BTC is bearish or there is a major bear trend/death cross, do not recommend a "Buy" just for a short-term micro-squeeze (scalp), since the user is a swing trader, not a scalper. Only recommend Buy if there is a genuine swing trading opportunity (e.g. accumulation value, clear structural bottom, or low-risk entry). Otherwise, recommend Hold/Watch or Stay Out.
+3. Explain the logic clearly and concisely, pointing out the BTC correlation state, the funding premium sentiment, and the liquidation (OI) cleanup status.
+4. Swearing is permitted when it lands. Output directly in markdown format.
 `;
 
   const response = await fetch('https://api.deepseek.com/chat/completions', {
@@ -122,7 +129,7 @@ Provide a sharp, subjective reading of the setup as an institutional investor. P
       messages: [
         {
           role: 'system',
-          content: 'You are an experienced crypto hedge fund manager. You write sharp, direct, high-conviction analyses. No corporate fluff, no hedging.'
+          content: 'You are an experienced crypto hedge fund manager writing analysis for a swing trader (holding period: days to weeks). You write sharp, direct, high-conviction analyses. No corporate fluff, no hedging, no scalping recommendations.'
         },
         {
           role: 'user',
