@@ -14,9 +14,9 @@ if (!process.env.SMTP_USER || !process.env.SMTP_PASS || !process.env.EMAIL_TO) {
 }
 
 async function fetchMarketData() {
-  console.log('Fetching live spot and futures feeds from Bybit...');
+  console.log('Fetching live spot and futures feeds from Bybit via CORS proxy...');
   
-  const urls = {
+  const rawUrls = {
     dailyRes: 'https://api.bybit.com/v5/market/kline?category=spot&symbol=SOLUSDT&interval=D&limit=300',
     fourHourRes: 'https://api.bybit.com/v5/market/kline?category=spot&symbol=SOLUSDT&interval=240&limit=300',
     btcRes: 'https://api.bybit.com/v5/market/kline?category=spot&symbol=BTCUSDT&interval=240&limit=50',
@@ -25,9 +25,16 @@ async function fetchMarketData() {
   };
 
   const results = {};
-  for (const [key, url] of Object.entries(urls)) {
+  for (const [key, url] of Object.entries(rawUrls)) {
     try {
-      const res = await fetch(url);
+      const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
+      const res = await fetch(proxyUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Origin': 'http://localhost:5173',
+          'Referer': 'http://localhost:5173/'
+        }
+      });
       results[key] = {
         ok: res.ok,
         status: res.status,
