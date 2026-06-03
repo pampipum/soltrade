@@ -16,25 +16,54 @@ if (!process.env.SMTP_USER || !process.env.SMTP_PASS || !process.env.EMAIL_TO) {
 async function fetchMarketData() {
   console.log('Fetching live spot and futures feeds from Bybit...');
   
-  // Since GitHub Actions runners are blocked by api.binance.com and api.binance.us geoblocks,
-  // we fetch all spot and futures market data from Bybit, which has no geoblocks or cloud firewall restrictions.
-  const [dailyRes, fourHourRes, btcRes, fundingRes, oiRes] = await Promise.all([
-    fetch('https://api.bybit.com/v5/market/kline?category=spot&symbol=SOLUSDT&interval=D&limit=300'),
-    fetch('https://api.bybit.com/v5/market/kline?category=spot&symbol=SOLUSDT&interval=240&limit=300'),
-    fetch('https://api.bybit.com/v5/market/kline?category=spot&symbol=BTCUSDT&interval=240&limit=50'),
-    fetch('https://api.bybit.com/v5/market/funding/history?category=linear&symbol=SOLUSDT&limit=1'),
-    fetch('https://api.bybit.com/v5/market/open-interest?category=linear&symbol=SOLUSDT&intervalTime=1h&limit=48')
-  ]);
+  const urls = {
+    dailyRes: 'https://api.bybit.com/v5/market/kline?category=spot&symbol=SOLUSDT&interval=D&limit=300',
+    fourHourRes: 'https://api.bybit.com/v5/market/kline?category=spot&symbol=SOLUSDT&interval=240&limit=300',
+    btcRes: 'https://api.bybit.com/v5/market/kline?category=spot&symbol=BTCUSDT&interval=240&limit=50',
+    fundingRes: 'https://api.bybit.com/v5/market/funding/history?category=linear&symbol=SOLUSDT&limit=1',
+    oiRes: 'https://api.bybit.com/v5/market/open-interest?category=linear&symbol=SOLUSDT&intervalTime=1h&limit=48'
+  };
 
-  if (!dailyRes.ok || !fourHourRes.ok || !btcRes.ok || !fundingRes.ok || !oiRes.ok) {
+  const results = {};
+  for (const [key, url] of Object.entries(urls)) {
+    try {
+      const res = await fetch(url);
+      results[key] = {
+        ok: res.ok,
+        status: res.status,
+        statusText: res.statusText,
+        url
+      };
+      if (!res.ok) {
+        const bodyText = await res.text().catch(() => '');
+        results[key].body = bodyText.slice(0, 300);
+      } else {
+        results[key].data = await res.json();
+      }
+    } catch (err) {
+      results[key] = {
+        ok: false,
+        error: err.message,
+        url
+      };
+    }
+  }
+
+  const failed = Object.entries(results).filter(([_, info]) => !info.ok);
+  if (failed.length > 0) {
+    console.error('--- API FETCH DIAGNOSTICS ---');
+    for (const [key, info] of Object.entries(results)) {
+      console.error(`- ${key}: ok=${info.ok}, status=${info.status || 'N/A'}, err=${info.error || 'None'}, body=${info.body || 'N/A'}`);
+    }
+    console.error('-----------------------------');
     throw new Error('Failed to retrieve market data from public exchange REST nodes.');
   }
 
-  const bybitDaily = await dailyRes.json();
-  const bybitFourHour = await fourHourRes.json();
-  const bybitBtc = await btcRes.json();
-  const bybitFunding = await fundingRes.json();
-  const bybitOI = await oiRes.json();
+  const bybitDaily = results.dailyRes.data;
+  const bybitFourHour = results.fourHourRes.data;
+  const bybitBtc = results.btcRes.data;
+  const bybitFunding = results.fundingRes.data;
+  const bybitOI = results.oiRes.data;
 
   // Map Bybit spot klines to Binance format: [openTime, open, high, low, close, volume, closeTime]
   // Reversing is REQUIRED because Bybit returns newest first, whereas our math engine expects oldest first (chronological).
