@@ -1,6 +1,9 @@
 name: SOLtrade Daily AI Alert
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     # 9:30 AM EST (13:30 UTC) - Market Open (runs every day)
     - cron: '30 13 * * *'
