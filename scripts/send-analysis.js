@@ -14,15 +14,14 @@ if (!process.env.SMTP_USER || !process.env.SMTP_PASS || !process.env.EMAIL_TO) {
 }
 
 async function fetchMarketData() {
-  console.log('Fetching live spot and futures feeds from Binance.US and Bybit...');
+  console.log('Fetching live spot and futures feeds from Bybit...');
   
-  // Since GitHub Actions runners are blocked by fapi.binance.com and api.binance.com firewalls,
-  // we fetch spot candles from Binance.US and derivatives data from Bybit.
-  // Both support cloud-IP requests natively and require no API keys or proxies.
+  // Since GitHub Actions runners are blocked by api.binance.com and api.binance.us geoblocks,
+  // we fetch all spot and futures market data from Bybit, which has no geoblocks or cloud firewall restrictions.
   const [dailyRes, fourHourRes, btcRes, fundingRes, oiRes] = await Promise.all([
-    fetch('https://api.binance.us/api/v3/klines?symbol=SOLUSDT&interval=1d&limit=300'),
-    fetch('https://api.binance.us/api/v3/klines?symbol=SOLUSDT&interval=4h&limit=300'),
-    fetch('https://api.binance.us/api/v3/klines?symbol=BTCUSDT&interval=4h&limit=50'),
+    fetch('https://api.bybit.com/v5/market/kline?category=spot&symbol=SOLUSDT&interval=D&limit=300'),
+    fetch('https://api.bybit.com/v5/market/kline?category=spot&symbol=SOLUSDT&interval=240&limit=300'),
+    fetch('https://api.bybit.com/v5/market/kline?category=spot&symbol=BTCUSDT&interval=240&limit=50'),
     fetch('https://api.bybit.com/v5/market/funding/history?category=linear&symbol=SOLUSDT&limit=1'),
     fetch('https://api.bybit.com/v5/market/open-interest?category=linear&symbol=SOLUSDT&intervalTime=1h&limit=48')
   ]);
@@ -31,30 +30,60 @@ async function fetchMarketData() {
     throw new Error('Failed to retrieve market data from public exchange REST nodes.');
   }
 
-  const dailyData = await dailyRes.json();
-  const fourHourData = await fourHourRes.json();
-  const btcData = await btcRes.json();
-  
+  const bybitDaily = await dailyRes.json();
+  const bybitFourHour = await fourHourRes.json();
+  const bybitBtc = await btcRes.json();
   const bybitFunding = await fundingRes.json();
   const bybitOI = await oiRes.json();
+
+  // Map Bybit spot klines to Binance format: [openTime, open, high, low, close, volume, closeTime]
+  // Reversing is REQUIRED because Bybit returns newest first, whereas our math engine expects oldest first (chronological).
+  const dailyKlines = [...bybitDaily.result.list].reverse().map(k => [
+    parseInt(k[0]), // open time
+    k[1], // open
+    k[2], // high
+    k[3], // low
+    k[4], // close
+    k[5], // volume
+    parseInt(k[0]) + 86400000 // dummy close time
+  ]);
+
+  const fourHourKlines = [...bybitFourHour.result.list].reverse().map(k => [
+    parseInt(k[0]),
+    k[1],
+    k[2],
+    k[3],
+    k[4],
+    k[5],
+    parseInt(k[0]) + 14400000
+  ]);
+
+  const btcKlines = [...bybitBtc.result.list].reverse().map(k => [
+    parseInt(k[0]),
+    k[1],
+    k[2],
+    k[3],
+    k[4],
+    k[5],
+    parseInt(k[0]) + 14400000
+  ]);
   
-  // Map Bybit to Binance schemas
+  // Map Bybit futures schemas
   const futuresPremiumIndex = {
     lastFundingRate: bybitFunding.result.list[0]?.fundingRate || '0'
   };
   
-  // Bybit returns list in reverse order (newest first). Let's reverse it to match Binance (oldest first).
   const openInterestHist = [...bybitOI.result.list].reverse().map(item => ({
     sumOpenInterest: item.openInterest,
     timestamp: parseInt(item.timestamp)
   }));
 
   return {
-    dailyKlines: dailyData,
-    fourHourKlines: fourHourData,
+    dailyKlines,
+    fourHourKlines,
     futuresPremiumIndex,
     openInterestHist,
-    btcKlines: btcData
+    btcKlines
   };
 }
 
