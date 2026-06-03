@@ -92,7 +92,7 @@ export default function App() {
       
       let oiData = [];
       try {
-        const oiRes = await fetch('https://corsproxy.io/?https://fapi.binance.com/fapi/v1/openInterestHist?symbol=SOLUSDT&period=1h&limit=48');
+        const oiRes = await fetch('https://corsproxy.io/?https://fapi.binance.com/futures/data/openInterestHist?symbol=SOLUSDT&period=1h&limit=48');
         if (oiRes.ok) {
           oiData = await oiRes.json();
         }
@@ -224,7 +224,7 @@ export default function App() {
 
       // 3. Poll futures Open Interest (proxied, fail-safe)
       try {
-        const oiRes = await fetch('https://corsproxy.io/?https://fapi.binance.com/fapi/v1/openInterestHist?symbol=SOLUSDT&period=1h&limit=48');
+        const oiRes = await fetch('https://corsproxy.io/?https://fapi.binance.com/futures/data/openInterestHist?symbol=SOLUSDT&period=1h&limit=48');
         if (oiRes.ok) {
           const oiData = await oiRes.json();
           setOpenInterestHist(oiData);
