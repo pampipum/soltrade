@@ -17,11 +17,11 @@ async function fetchMarketData() {
   console.log('Fetching live spot and futures feeds from Bybit...');
   
   const rawUrls = {
-    dailyRes: 'https://api.bybit.com/v5/market/kline?category=spot&symbol=SOLUSDT&interval=D&limit=300',
-    fourHourRes: 'https://api.bybit.com/v5/market/kline?category=spot&symbol=SOLUSDT&interval=240&limit=300',
-    btcRes: 'https://api.bybit.com/v5/market/kline?category=spot&symbol=BTCUSDT&interval=240&limit=50',
-    fundingRes: 'https://api.bybit.com/v5/market/funding/history?category=linear&symbol=SOLUSDT&limit=1',
-    oiRes: 'https://api.bybit.com/v5/market/open-interest?category=linear&symbol=SOLUSDT&intervalTime=1h&limit=48'
+    dailyRes: 'https://api.bybit.nl/v5/market/kline?category=spot&symbol=SOLUSDT&interval=D&limit=300',
+    fourHourRes: 'https://api.bybit.nl/v5/market/kline?category=spot&symbol=SOLUSDT&interval=240&limit=300',
+    btcRes: 'https://api.bybit.nl/v5/market/kline?category=spot&symbol=BTCUSDT&interval=240&limit=50',
+    fundingRes: 'https://api.bybit.nl/v5/market/funding/history?category=linear&symbol=SOLUSDT&limit=1',
+    oiRes: 'https://api.bybit.nl/v5/market/open-interest?category=linear&symbol=SOLUSDT&intervalTime=1h&limit=48'
   };
 
   const results = {};
