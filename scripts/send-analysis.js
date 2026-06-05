@@ -17,7 +17,7 @@ async function fetchMarketData() {
   console.log('Fetching live spot and futures feeds from dYdX Indexer...');
   
   const rawUrls = {
-    dailyRes: 'https://indexer.dydx.trade/v4/candles/perpetualMarkets/SOL-USD?resolution=1DAY&limit=300',
+    dailyRes: 'https://indexer.dydx.trade/v4/candles/perpetualMarkets/SOL-USD?resolution=1DAY&limit=1000',
     fourHourRes: 'https://indexer.dydx.trade/v4/candles/perpetualMarkets/SOL-USD?resolution=4HOURS&limit=300',
     btcRes: 'https://indexer.dydx.trade/v4/candles/perpetualMarkets/BTC-USD?resolution=4HOURS&limit=50',
     fundingRes: 'https://indexer.dydx.trade/v4/historicalFunding/SOL-USD?limit=1',

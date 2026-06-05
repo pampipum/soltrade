@@ -4,6 +4,7 @@ import { getDashboardState, parseKlines, calculateRSI, calculateSMA } from './ut
 import TradingChart from './components/TradingChart';
 import TriggerChecklist from './components/TriggerChecklist';
 import HistoricalContext from './components/HistoricalContext';
+import ForwardReturns from './components/ForwardReturns';
 import { RefreshCw, Radio, TrendingDown, ArrowDownRight, ArrowUpRight, Coins } from 'lucide-react';
 
 export default function App() {
@@ -50,7 +51,7 @@ export default function App() {
       updated[lastIndex] = mapped; // Update ongoing candle
     } else if (wsKline.t > updated[lastIndex][0]) {
       updated.push(mapped); // New candle opened
-      if (updated.length > 300) updated.shift();
+      if (updated.length > 1000) updated.shift();
     }
     return updated;
   };
@@ -62,7 +63,7 @@ export default function App() {
     try {
       // 1. Fetch Spot data (supports CORS natively and MUST succeed)
       const [dailyRes, fourHourRes, btcRes] = await Promise.all([
-        fetch('https://api.binance.com/api/v3/klines?symbol=SOLUSDT&interval=1d&limit=300'),
+        fetch('https://api.binance.com/api/v3/klines?symbol=SOLUSDT&interval=1d&limit=1000'),
         fetch('https://api.binance.com/api/v3/klines?symbol=SOLUSDT&interval=4h&limit=300'),
         fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=4h&limit=50')
       ]);
@@ -300,6 +301,7 @@ export default function App() {
     rsiPercentile,
     ma200DistPercentile,
     drawdownFromHigh,
+    forwardReturns,
     rawDaily,
     rawRsiList,
     rawMA20List,
@@ -470,6 +472,8 @@ export default function App() {
             ma200DistPercentile={ma200DistPercentile}
             drawdownFromHigh={drawdownFromHigh}
           />
+
+          <ForwardReturns forwardReturns={forwardReturns} />
         </section>
       </main>
     </div>

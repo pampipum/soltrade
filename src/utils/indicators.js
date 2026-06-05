@@ -232,6 +232,74 @@ export function detectLiquiditySweep(candle) {
   };
 }
 
+// Calculate forward returns after a signal
+export function calculateForwardReturns(data, rsiValues, currentRSI) {
+  if (!data || data.length === 0 || !rsiValues || rsiValues.length === 0) {
+    return { bulls: null, bears: null, bullThreshold: currentRSI, bearThreshold: 100 - currentRSI };
+  }
+  
+  const bullThreshold = currentRSI;
+  const bearThreshold = 100 - currentRSI; // if RSI is 30, bear is 70.
+  
+  const forwardPeriods = [
+    { label: '3m', days: 90 },
+    { label: '6m', days: 180 },
+    { label: '9m', days: 270 },
+    { label: '12m', days: 365 }
+  ];
+
+  const getMetrics = (isBull) => {
+    const results = {};
+    forwardPeriods.forEach(p => {
+      results[p.label] = { gains: [], losses: [] };
+    });
+
+    for (let i = 0; i < data.length; i++) {
+      const rsi = rsiValues[i];
+      if (rsi === null) continue;
+
+      const isMatch = isBull ? (rsi <= bullThreshold) : (rsi >= bearThreshold);
+      if (!isMatch) continue;
+
+      const basePrice = data[i].close;
+      if (basePrice <= 0) continue;
+
+      forwardPeriods.forEach(p => {
+        if (i + p.days < data.length) {
+          const futurePrice = data[i + p.days].close;
+          const returnPct = ((futurePrice - basePrice) / basePrice) * 100;
+          if (returnPct >= 0) {
+            results[p.label].gains.push(returnPct);
+          } else {
+            results[p.label].losses.push(returnPct);
+          }
+        }
+      });
+    }
+
+    const aggregated = {};
+    forwardPeriods.forEach(p => {
+      const g = results[p.label].gains;
+      const l = results[p.label].losses;
+      aggregated[p.label] = {
+        avgGain: g.length > 0 ? g.reduce((a, b) => a + b, 0) / g.length : null,
+        avgLoss: l.length > 0 ? l.reduce((a, b) => a + b, 0) / l.length : null,
+        count: g.length + l.length
+      };
+    });
+
+    return aggregated;
+  };
+
+  return {
+    bulls: getMetrics(true),
+    bears: getMetrics(false),
+    bullThreshold,
+    bearThreshold
+  };
+}
+
+
 // Calculate the full dashboard state (v2 — weighted scoring + percentile context)
 export function getDashboardState(
   dailyKlines,
@@ -506,6 +574,8 @@ export function getDashboardState(
     };
   }
 
+  const forwardReturns = calculateForwardReturns(daily, rsiList, currentRSI);
+
   return {
     price: currentPrice,
     volume: currentVolume,
@@ -526,6 +596,7 @@ export function getDashboardState(
     checklist,
     bearSignals,
     fourHour: fourHourState,
+    forwardReturns,
     // Weighted scoring
     weightedScore,
     scoreBreakdown,
