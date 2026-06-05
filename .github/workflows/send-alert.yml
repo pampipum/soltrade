@@ -2,10 +2,10 @@ name: SOLtrade Daily AI Alert
 
 on:
   schedule:
-    # 9:30 AM EST (13:30 UTC) - Market Open (runs every day)
-    - cron: '30 13 * * *'
-    # 4:00 PM EST (20:00 UTC) - Market Close (runs every day)
-    - cron: '0 20 * * *'
+    # 8:00 AM Swiss Time (CEST = UTC+2, maps to 06:00 UTC)
+    - cron: '0 6 * * *'
+    # 5:00 PM Swiss Time (CEST = UTC+2, maps to 15:00 UTC)
+    - cron: '0 15 * * *'
   # Allows you to manually trigger it from the GitHub Actions tab
   workflow_dispatch:
 

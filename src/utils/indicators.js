@@ -1,8 +1,9 @@
 /**
  * Technical Indicator Calculation Engine for SOLtrade
+ * v2 — Weighted scoring, percentile context, tighter thresholds
  */
 
-// Helper to convert Binance klines format to usable objects
+// Helper to convert klines format to usable objects
 export function parseKlines(klines) {
   return klines.map(k => ({
     time: k[0],
@@ -57,7 +58,7 @@ export function calculateRSI(data, period = 14) {
     rsi[period] = 100 - 100 / (1 + rs);
   }
   
-  // Smoothed averages
+  // Smoothed averages (Wilder's method)
   for (let i = period + 1; i < data.length; i++) {
     const currentGain = gains[i - 1];
     const currentLoss = losses[i - 1];
@@ -76,8 +77,38 @@ export function calculateRSI(data, period = 14) {
   return rsi;
 }
 
+// Calculate Average True Range (ATR) for dynamic thresholds
+export function calculateATR(data, period = 14) {
+  if (data.length < period + 1) return null;
+  const trValues = [];
+  for (let i = 1; i < data.length; i++) {
+    const high = data[i].high;
+    const low = data[i].low;
+    const prevClose = data[i - 1].close;
+    const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+    trValues.push(tr);
+  }
+  // Wilder smoothing for ATR
+  let atr = trValues.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < trValues.length; i++) {
+    atr = (atr * (period - 1) + trValues[i]) / period;
+  }
+  return atr;
+}
+
+/**
+ * Rank a value within a history array (ascending). Returns 0–100 percentile.
+ * A return of 5 means "only 5% of historical values are lower than current."
+ */
+export function calculatePercentile(value, history) {
+  if (!history || history.length === 0) return null;
+  const validHistory = history.filter(v => v !== null && v !== undefined && !isNaN(v));
+  if (validHistory.length === 0) return null;
+  const below = validHistory.filter(v => v < value).length;
+  return Math.round((below / validHistory.length) * 100);
+}
+
 // Detect Reversal Candle Pattern
-// Returns { isReversal: boolean, type: string, detail: string }
 export function detectReversalCandle(candle) {
   if (!candle) return { isReversal: false, type: 'None', detail: 'No candle data' };
   
@@ -100,7 +131,7 @@ export function detectReversalCandle(candle) {
     };
   }
   
-  // Bullish Engulfing or simple strong green candle with >60% body
+  // Bullish Marubozu / strong green candle with >60% body
   const isStrongGreen = candle.close > candle.open && bodyPercentage > 0.6;
   if (isStrongGreen) {
     return {
@@ -110,7 +141,7 @@ export function detectReversalCandle(candle) {
     };
   }
   
-  // Large red candle (as described in the report)
+  // Large red candle — bearish continuation
   if (candle.close < candle.open && bodyPercentage > 0.8) {
     return {
       isReversal: false,
@@ -130,18 +161,16 @@ export function detectReversalCandle(candle) {
 export function detectBullishDivergence(data, rsiValues) {
   if (data.length < 15 || rsiValues.length < 15) return { active: false, detail: 'Insufficient data' };
   
-  // Look back at recent price lows (last 10 days) and check if they correspond to higher RSI values
   const n = data.length;
   const currentPrice = data[n - 1].close;
   const currentRSI = rsiValues[n - 1];
   
   if (currentRSI === null) return { active: false, detail: 'RSI not calculated' };
   
-  // Let's find local lows in the last 15 days
+  // Find a prior swing low between t-15 and t-3
   let lowestPriceIndex = -1;
   let lowestPrice = Infinity;
   
-  // Find a prior low between index n-15 and n-3 (a few days ago)
   for (let i = n - 15; i < n - 3; i++) {
     if (data[i].close < lowestPrice) {
       lowestPrice = data[i].close;
@@ -154,7 +183,6 @@ export function detectBullishDivergence(data, rsiValues) {
     const priorRSI = rsiValues[lowestPriceIndex];
     
     if (priorRSI !== null) {
-      // Divergence: currentPrice is lower than priorPrice, but currentRSI is higher than priorRSI
       const isPriceLower = currentPrice < priorPrice;
       const isRSIHigher = currentRSI > priorRSI;
       
@@ -166,7 +194,7 @@ export function detectBullishDivergence(data, rsiValues) {
       } else if (!isPriceLower && !isRSIHigher) {
         return {
           active: false,
-          detail: `No divergence: Price is higher ($${currentPrice.toFixed(2)} vs $${priorPrice.toFixed(2)}) and RSI is higher (${currentRSI.toFixed(1)} vs ${priorRSI.toFixed(1)})`
+          detail: `No divergence: Price higher ($${currentPrice.toFixed(2)} vs $${priorPrice.toFixed(2)}) and RSI higher (${currentRSI.toFixed(1)} vs ${priorRSI.toFixed(1)})`
         };
       } else {
         return {
@@ -180,7 +208,7 @@ export function detectBullishDivergence(data, rsiValues) {
   return { active: false, detail: 'No clear swing lows' };
 }
 
-// Detect if a daily candle is a liquidity sweep (very long lower shadow)
+// Detect liquidity sweep (very long lower shadow)
 export function detectLiquiditySweep(candle) {
   if (!candle) return { active: false, detail: 'No candle data' };
   const body = Math.abs(candle.close - candle.open);
@@ -189,7 +217,6 @@ export function detectLiquiditySweep(candle) {
   const totalRange = candle.high - candle.low;
   if (totalRange === 0) return { active: false, detail: 'No range' };
   
-  // A liquidity sweep occurs when the lower wick is at least 2.5x the body, or is >60% of the entire candle length (for small body dojis)
   const isSweep = lowerShadow >= body * 2.5 || (body < 0.1 && lowerShadow > totalRange * 0.6);
   
   if (isSweep) {
@@ -205,19 +232,17 @@ export function detectLiquiditySweep(candle) {
   };
 }
 
-// Calculate the full dashboard state
+// Calculate the full dashboard state (v2 — weighted scoring + percentile context)
 export function getDashboardState(
   dailyKlines,
   fourHourKlines,
   futuresPremiumIndex = null,
   openInterestHist = null,
-  btcKlines = null,
-  higherLowThreshold = 76.73
+  btcKlines = null
 ) {
   if (!dailyKlines || dailyKlines.length < 200) return null;
   
   const daily = parseKlines(dailyKlines);
-  const dailyCloses = daily.map(d => d.close);
   const len = daily.length;
   
   // Current values
@@ -238,10 +263,16 @@ export function getDashboardState(
   const currentRSI = rsiList[len - 1];
   const prevRSI = rsiList[len - 2];
   
-  // 14-day Low (excluding current candle to check true historical low threshold)
+  // ATR-14 for dynamic threshold
+  const atr14 = calculateATR(daily, 14);
+
+  // 14-day Low (excluding current candle)
   const last14dDaily = daily.slice(len - 15, len - 1);
   const low14d = Math.min(...last14dDaily.map(d => d.low));
   
+  // Dynamic higher low threshold: 14d low + 0.5 ATR buffer
+  const dynamicHigherLowThreshold = atr14 ? low14d + (atr14 * 0.5) : low14d;
+
   // Volume ratio
   const last30dDaily = daily.slice(len - 31, len - 1);
   const avg30dVolume = last30dDaily.reduce((acc, d) => acc + d.volume, 0) / 30;
@@ -261,26 +292,61 @@ export function getDashboardState(
   // Bullish RSI Divergence
   const bullishDivergenceCheck = detectBullishDivergence(daily, rsiList);
 
-  // 1. Funding Rate calculation
+  // --- PERCENTILE CONTEXT (rolling 252-day window) ---
+  const historyWindow = Math.min(len, 252);
+  const rsiHistory = rsiList.slice(len - historyWindow, len - 1).filter(v => v !== null);
+  const rsiPercentile = calculatePercentile(currentRSI, rsiHistory);
+  
+  // MA200 distance history
+  const ma200DistHistory = [];
+  for (let i = len - historyWindow; i < len - 1; i++) {
+    if (ma200List[i] && ma200List[i] > 0) {
+      ma200DistHistory.push(((daily[i].close - ma200List[i]) / ma200List[i]) * 100);
+    }
+  }
+  const ma200Distance = ((currentPrice - ma200) / ma200) * 100;
+  const ma200DistPercentile = calculatePercentile(ma200Distance, ma200DistHistory);
+
+  // Drawdown from 300-day high (cycle context)
+  const lookbackHigh = Math.max(...daily.slice(0, len - 1).map(d => d.high));
+  const drawdownFromHigh = ((currentPrice - lookbackHigh) / lookbackHigh) * 100;
+
+  // --- DERIVATIVES ---
+  // 1. Funding Rate — requires extreme reading, not just any negative value
   let fundingRate = null;
   if (futuresPremiumIndex && futuresPremiumIndex.lastFundingRate !== undefined) {
     fundingRate = parseFloat(futuresPremiumIndex.lastFundingRate) * 100;
   }
-  
-  // 2. Open Interest drawdown calculation (48 hours lookback)
+  const isFundingExtreme = fundingRate !== null && fundingRate < -0.01; // -0.01% is meaningful extreme
+
+  // 2. OI Drawdown + directional context (price held on flush day)
   let oiChangePct = null;
   let maxOI = 0;
   let currentOI = 0;
+  let oiFlushDayPriceHeld = false;
   if (openInterestHist && Array.isArray(openInterestHist) && openInterestHist.length > 0) {
-    const oiValues = openInterestHist.map(o => parseFloat(o.sumOpenInterest)).filter(v => !isNaN(v));
+    // Sort by timestamp ascending
+    const sortedOI = [...openInterestHist].sort((a, b) => a.timestamp - b.timestamp);
+    const oiValues = sortedOI.map(o => parseFloat(o.sumOpenInterest)).filter(v => !isNaN(v));
     if (oiValues.length > 0) {
       maxOI = Math.max(...oiValues);
       currentOI = oiValues[oiValues.length - 1];
       oiChangePct = maxOI > 0 ? ((currentOI - maxOI) / maxOI) * 100 : 0;
+      
+      // Check if price held on the day of max OI (i.e., when the flush happened)
+      // Proxy: check if yesterday and today's closes are >= opens (price holding)
+      const prevCandle = daily[len - 2];
+      const currCandle = daily[len - 1];
+      oiFlushDayPriceHeld = (currCandle.close >= currCandle.open) || (prevCandle.close >= prevCandle.open);
     }
   }
+  
+  const isOIFlush = oiChangePct !== null && oiChangePct <= -15 && oiFlushDayPriceHeld;
+  const oiFlushDetail = oiChangePct !== null
+    ? `${oiChangePct.toFixed(1)}% from peak (${(currentOI/1e6).toFixed(0)}M vs ${(maxOI/1e6).toFixed(0)}M peak)${oiChangePct <= -15 && !oiFlushDayPriceHeld ? ' — price not holding' : ''}`
+    : 'Offline (CORS)';
 
-  // 3. BTC 4h Trend calculations
+  // 3. BTC 4H Trend
   let btcPrice = 0;
   let btcMA20 = 0;
   let isBtcTrendBullish = false;
@@ -293,64 +359,115 @@ export function getDashboardState(
       isBtcTrendBullish = btcPrice > btcMA20;
     }
   }
-  
-  // Checklist evaluations (now 9 triggers)
+
+  // RSI at historical extreme (below 15th percentile of own 252-day history)
+  const isRSIAtHistoricExtreme = rsiPercentile !== null && rsiPercentile <= 15;
+
+  // --- CHECKLIST (keeps backward compat, items now reference updated logic) ---
   const checklist = {
     priceAboveMA20: {
       id: 'a',
       title: 'Price above MA20',
       active: currentPrice > ma20,
-      detail: `$${currentPrice.toFixed(2)} vs $${ma20.toFixed(2)}`
+      detail: `$${currentPrice.toFixed(2)} vs $${ma20.toFixed(2)}`,
+      cluster: 'trend'
     },
     rsiCrossedAbove30: {
       id: 'b',
       title: 'RSI crossed above 30',
       active: currentRSI > 30 && prevRSI <= 30,
-      detail: `${currentRSI?.toFixed(1) || 'N/A'} (prev ${prevRSI?.toFixed(1) || 'N/A'})`
+      detail: `${currentRSI?.toFixed(1) || 'N/A'} (prev ${prevRSI?.toFixed(1) || 'N/A'})`,
+      cluster: 'momentum'
     },
     higherLow: {
       id: 'c',
-      title: `Higher low ($${higherLowThreshold.toFixed(2)}+)`,
-      active: currentPrice >= higherLowThreshold,
-      detail: `$${currentPrice.toFixed(2)} vs threshold $${higherLowThreshold.toFixed(2)}`
+      title: `Higher low (dynamic: $${dynamicHigherLowThreshold.toFixed(2)}+)`,
+      active: currentPrice >= dynamicHigherLowThreshold,
+      detail: `$${currentPrice.toFixed(2)} vs floor $${dynamicHigherLowThreshold.toFixed(2)} (14d low + 0.5 ATR)`,
+      cluster: 'trend'
     },
     volumeCapitulation: {
       id: 'd',
       title: 'Volume capitulation',
       active: volumeRatio >= 1.5 && daily[len - 1].close > daily[len - 1].open,
-      detail: `${(currentVolume/1e6).toFixed(1)}M vs ${(volumeNeeded/1e6).toFixed(1)}M needed (${volumeRatio.toFixed(2)}x)`
+      detail: `${(currentVolume/1e6).toFixed(1)}M vs ${(volumeNeeded/1e6).toFixed(1)}M needed (${volumeRatio.toFixed(2)}x)`,
+      cluster: 'candle'
     },
     bullishDivergence: {
       id: 'e',
       title: 'Bullish RSI divergence',
       active: bullishDivergenceCheck.active,
-      detail: bullishDivergenceCheck.detail
+      detail: bullishDivergenceCheck.detail,
+      cluster: 'candle'
     },
     reversalCandle: {
       id: 'f',
       title: 'Reversal candle / Wick sweep',
       active: reversalCandleCheck.isReversal || isLiquiditySweep,
-      detail: reversalCandleCheck.isReversal ? reversalCandleCheck.detail : liquiditySweepDetail
+      detail: reversalCandleCheck.isReversal ? reversalCandleCheck.detail : liquiditySweepDetail,
+      cluster: 'candle'
     },
     leverageFlush: {
       id: 'g',
-      title: 'Leverage Flush (OI Drawdown)',
-      active: oiChangePct !== null && oiChangePct <= -15, // collapse of 15% or deeper
-      detail: oiChangePct !== null ? `${oiChangePct.toFixed(1)}% from peak (${(currentOI/1e6).toFixed(0)}M vs ${(maxOI/1e6).toFixed(0)}M peak)` : 'Offline (CORS)'
+      title: 'Leverage Flush (OI Drawdown + price hold)',
+      active: isOIFlush,
+      detail: oiFlushDetail,
+      cluster: 'derivatives'
     },
     negativeFunding: {
       id: 'h',
-      title: 'Short Crowding (Negative Funding)',
-      active: fundingRate !== null && fundingRate < 0,
-      detail: fundingRate !== null ? `${fundingRate.toFixed(4)}%` : 'Offline (CORS)'
+      title: 'Short Crowding (Funding < -0.01%)',
+      active: isFundingExtreme,
+      detail: fundingRate !== null ? `${fundingRate.toFixed(4)}% (threshold: -0.01%)` : 'Offline (CORS)',
+      cluster: 'derivatives'
     },
     btcTrendSupport: {
       id: 'i',
       title: 'BTC 4H Trend Support',
       active: isBtcTrendBullish,
-      detail: `BTC $${(btcPrice/1e3).toFixed(1)}k vs MA20 $${(btcMA20/1e3).toFixed(1)}k`
+      detail: `BTC $${(btcPrice/1e3).toFixed(1)}k vs MA20 $${(btcMA20/1e3).toFixed(1)}k`,
+      cluster: 'macro'
     }
   };
+
+  // --- WEIGHTED SCORE ENGINE ---
+  const scoreBreakdown = {
+    macro: {
+      label: 'Macro Regime',
+      max: 25,
+      earned: isBtcTrendBullish ? 25 : 0
+    },
+    derivatives: {
+      label: 'Derivatives',
+      max: 25,
+      earned: (isOIFlush ? 15 : 0) + (isFundingExtreme ? 10 : 0)
+    },
+    trend: {
+      label: 'Trend Structure',
+      max: 20,
+      earned:
+        (currentPrice > ma20 ? 8 : 0) +
+        (currentPrice > ma50 ? 7 : 0) +
+        (ma20 > ma50 ? 5 : 0)
+    },
+    momentum: {
+      label: 'RSI Momentum',
+      max: 15,
+      earned:
+        (currentRSI > 30 && prevRSI <= 30 ? 8 : 0) +
+        (isRSIAtHistoricExtreme ? 7 : 0)
+    },
+    candle: {
+      label: 'Candle / Volume',
+      max: 15,
+      earned:
+        (volumeRatio >= 1.5 && daily[len - 1].close > daily[len - 1].open ? 7 : 0) +
+        (reversalCandleCheck.isReversal || isLiquiditySweep ? 5 : 0) +
+        (bullishDivergenceCheck.active ? 3 : 0)
+    }
+  };
+
+  const weightedScore = Object.values(scoreBreakdown).reduce((acc, c) => acc + c.earned, 0);
 
   const bearSignals = {
     priceBelowMA50: {
@@ -371,21 +488,16 @@ export function getDashboardState(
     }
   };
   
-  // Calculate 4h momentum if available
+  // 4h momentum
   let fourHourState = null;
   if (fourHourKlines && fourHourKlines.length >= 20) {
     const fh = parseKlines(fourHourKlines);
-    const fhCloses = fh.map(k => k.close);
     const fhLen = fh.length;
-    
     const fhRsiList = calculateRSI(fh, 14);
     const fhRsi = fhRsiList[fhLen - 1];
-    
     const fhMa20List = calculateSMA(fh, 20);
     const fhMa20 = fhMa20List[fhLen - 1];
-    
     const fhPrice = fh[fhLen - 1].close;
-    
     fourHourState = {
       rsi: fhRsi,
       vsMA20: fhPrice > fhMa20 ? 'above' : 'below',
@@ -394,9 +506,6 @@ export function getDashboardState(
     };
   }
 
-  // Under MA200 distance
-  const ma200Distance = ((currentPrice - ma200) / ma200) * 100;
-  
   return {
     price: currentPrice,
     volume: currentVolume,
@@ -406,6 +515,7 @@ export function getDashboardState(
     ma200,
     ma200Distance,
     low14d,
+    dynamicHigherLowThreshold,
     volumeRatio,
     fundingRate,
     openInterest: currentOI,
@@ -416,6 +526,15 @@ export function getDashboardState(
     checklist,
     bearSignals,
     fourHour: fourHourState,
+    // Weighted scoring
+    weightedScore,
+    scoreBreakdown,
+    // Percentile context
+    rsiPercentile,
+    ma200DistPercentile,
+    drawdownFromHigh,
+    isRSIAtHistoricExtreme,
+    // Raw data for chart rendering
     rawDaily: daily,
     rawRsiList: rsiList,
     rawMA20List: ma20List,

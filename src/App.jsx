@@ -295,6 +295,11 @@ export default function App() {
     checklist,
     bearSignals,
     fourHour,
+    weightedScore,
+    scoreBreakdown,
+    rsiPercentile,
+    ma200DistPercentile,
+    drawdownFromHigh,
     rawDaily,
     rawRsiList,
     rawMA20List,
@@ -312,37 +317,34 @@ export default function App() {
 
   const activeCount = Object.values(checklist).filter(item => item.active).length;
   const activeBearCount = Object.values(bearSignals).filter(item => item.active).length;
+  const score = weightedScore ?? 0;
 
-  // Dynamic recommendation logic (Institutional Overrides)
+  // Recommendation logic — driven by weighted score (0–100)
   let action = {
     class: 'action-red',
-    text: 'STAY OUT — Too early, downtrend intact',
-    desc: 'The setup is actively bearish. Sellers dominate both spot and derivatives. Do not catch wicks. Wait for indicators to resolve.'
+    text: 'STAY OUT — Insufficient signal weight',
+    desc: `Weighted signal score is ${score}/100. Conditions are not yet favorable for a swing entry. Wait for the score to build across multiple clusters.`
   };
 
-  const isLeverageFlushActive = openInterestDrawdown <= -15;
-
-  if (activeCount >= 4) {
+  if (score >= 75) {
     if (isBtcTrendBullish) {
       action = {
         class: 'action-green',
         text: 'BUY / ACCUMULATE — Strong bottoming confirmation',
-        desc: `Market triggers are active (${activeCount}/9). BTC is trading above its 4H MA20, confirming trend stabilization. ${
-          isLeverageFlushActive ? 'LEVERAGE FLUSH CONFIRMED: High retail liquidation has washed out leveraged longs.' : ''
-        }`
+        desc: `Weighted score: ${score}/100. Multiple clusters are firing with BTC macro support confirmed above 4H MA20. High-conviction swing setup.`
       };
     } else {
       action = {
         class: 'action-yellow',
-        text: 'MUTED ACCUMULATION — BTC Bearish Trend Override',
-        desc: `SOL is showing local strength (${activeCount}/9 triggers active), but BTC remains in a bearish trend (BTC below 4H MA20). Build size slowly using spot, or wait for BTC confirmation.`
+        text: 'MUTED ACCUMULATION — BTC Bearish Override',
+        desc: `Weighted score: ${score}/100. SOL signals are strong but BTC is below 4H MA20 — macro is hostile. Use spot-only, reduce size, or wait for BTC confirmation.`
       };
     }
-  } else if (activeCount >= 2) {
+  } else if (score >= 50) {
     action = {
       class: 'action-yellow',
-      text: 'WATCH CLOSELY — Initial accumulation triggers',
-      desc: `Checklist is picking up momentum (${activeCount}/9 triggers). Watch for funding rates to dip further negative and monitor BTC's structure.`
+      text: 'WATCH CLOSELY — Signal building',
+      desc: `Weighted score: ${score}/100. Setup is accumulating across clusters but hasn't reached conviction threshold (75+). Monitor derivatives and BTC structure closely.`
     };
   }
 
@@ -458,10 +460,15 @@ export default function App() {
             bearSignals={bearSignals}
             fourHour={fourHour}
             price={price}
+            weightedScore={weightedScore}
+            scoreBreakdown={scoreBreakdown}
           />
           
           <HistoricalContext 
             ma200Distance={ma200Distance}
+            rsiPercentile={rsiPercentile}
+            ma200DistPercentile={ma200DistPercentile}
+            drawdownFromHigh={drawdownFromHigh}
           />
         </section>
       </main>

@@ -14,7 +14,7 @@ if (!process.env.SMTP_USER || !process.env.SMTP_PASS || !process.env.EMAIL_TO) {
 }
 
 async function fetchMarketData() {
-  console.log('Fetching live spot and futures feeds from Bybit via CORS proxy...');
+  console.log('Fetching live spot and futures feeds from Bybit...');
   
   const rawUrls = {
     dailyRes: 'https://api.bybit.com/v5/market/kline?category=spot&symbol=SOLUSDT&interval=D&limit=300',
@@ -27,8 +27,7 @@ async function fetchMarketData() {
   const results = {};
   for (const [key, url] of Object.entries(rawUrls)) {
     try {
-      const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
-      const res = await fetch(proxyUrl);
+      const res = await fetch(url);
       results[key] = {
         ok: res.ok,
         status: res.status,
@@ -126,25 +125,37 @@ async function generateDeepSeekReport(state) {
     
   const activeBearCount = Object.values(state.bearSignals).filter(item => item.active).length;
 
+  const scoreLines = state.scoreBreakdown
+    ? Object.values(state.scoreBreakdown)
+        .map(c => `  ${c.label}: ${c.earned}/${c.max}pts`)
+        .join('\n')
+    : 'N/A';
+
   const promptText = `
 You are analyzing the market for a swing trader (holding period: days to weeks). Do NOT recommend scalps, micro-trades, or short-term day trading.
 
 Current SOL & BTC Market Data:
 SOL Price: $${state.price.toFixed(2)}
-SOL Daily RSI: ${state.rsi.toFixed(1)}
+SOL Daily RSI: ${state.rsi.toFixed(1)} (${state.rsiPercentile !== null ? state.rsiPercentile + 'th percentile vs 252-day history' : 'percentile N/A'})
 SOL Funding Rate: ${state.fundingRate !== null ? state.fundingRate.toFixed(4) + '%' : 'Offline/CORS'}
 SOL OI Drawdown: ${state.openInterestDrawdown !== null ? state.openInterestDrawdown.toFixed(1) + '%' : 'Offline/CORS'}
 SOL 14d Low: $${state.low14d.toFixed(2)}
+SOL MA200 Distance: ${state.ma200Distance.toFixed(1)}% (${state.ma200DistPercentile !== null ? state.ma200DistPercentile + 'th percentile vs 252-day history' : 'percentile N/A'})
+SOL Drawdown from Cycle High: ${state.drawdownFromHigh !== null ? state.drawdownFromHigh.toFixed(1) + '%' : 'N/A'}
 BTC Price: $${state.btcPrice.toLocaleString()} (vs 4H MA20 $${state.btcMA20.toLocaleString()})
 BTC Trend status is: ${state.isBtcTrendBullish ? 'BULLISH (Above 4H MA20)' : 'BEARISH (Below 4H MA20)'}
+
+Weighted Signal Score: ${state.weightedScore ?? 0}/100
+Score Breakdown by Cluster:
+${scoreLines}
 
 Active Triggers Checklist: ${activeTriggers.join(', ') || 'None'}
 Bear Market moving averages: ${activeBearCount}/4 active (Bearish structure)
 
 Provide a sharp, subjective reading of this setup for a swing trader.
 1. Decide on a single, clear recommendation: Buy (for a swing position), Hold/Watch (waiting for setup/trend confirmation), or Stay Out (trend is hostile, risk too high).
-2. The recommendation MUST be consistent with the macro structure. If BTC is bearish or there is a major bear trend/death cross, do not recommend a "Buy" just for a short-term micro-squeeze (scalp), since the user is a swing trader, not a scalper. Only recommend Buy if there is a genuine swing trading opportunity (e.g. accumulation value, clear structural bottom, or low-risk entry). Otherwise, recommend Hold/Watch or Stay Out.
-3. Explain the logic clearly and concisely, pointing out the BTC correlation state, the funding premium sentiment, and the liquidation (OI) cleanup status.
+2. The recommendation MUST be consistent with the weighted score and macro structure. A score below 50 means Stay Out. A score of 50-74 means Watch. A score of 75+ with BTC bullish means Buy. A score of 75+ without BTC support means Muted/Watch.
+3. Explain the logic clearly and concisely, pointing out the BTC correlation state, the funding premium sentiment, the OI cleanup status, and what the RSI and MA200 percentile readings tell you about historical extremity.
 4. Swearing is permitted when it lands. Output directly in markdown format.
 `;
 
