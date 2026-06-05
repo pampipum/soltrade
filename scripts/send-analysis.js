@@ -14,14 +14,14 @@ if (!process.env.SMTP_USER || !process.env.SMTP_PASS || !process.env.EMAIL_TO) {
 }
 
 async function fetchMarketData() {
-  console.log('Fetching live spot and futures feeds from Bybit...');
+  console.log('Fetching live spot and futures feeds from dYdX Indexer...');
   
   const rawUrls = {
-    dailyRes: 'https://api.bybit.nl/v5/market/kline?category=spot&symbol=SOLUSDT&interval=D&limit=300',
-    fourHourRes: 'https://api.bybit.nl/v5/market/kline?category=spot&symbol=SOLUSDT&interval=240&limit=300',
-    btcRes: 'https://api.bybit.nl/v5/market/kline?category=spot&symbol=BTCUSDT&interval=240&limit=50',
-    fundingRes: 'https://api.bybit.nl/v5/market/funding/history?category=linear&symbol=SOLUSDT&limit=1',
-    oiRes: 'https://api.bybit.nl/v5/market/open-interest?category=linear&symbol=SOLUSDT&intervalTime=1h&limit=48'
+    dailyRes: 'https://indexer.dydx.trade/v4/candles/perpetualMarkets/SOL-USD?resolution=1DAY&limit=300',
+    fourHourRes: 'https://indexer.dydx.trade/v4/candles/perpetualMarkets/SOL-USD?resolution=4HOURS&limit=300',
+    btcRes: 'https://indexer.dydx.trade/v4/candles/perpetualMarkets/BTC-USD?resolution=4HOURS&limit=50',
+    fundingRes: 'https://indexer.dydx.trade/v4/historicalFunding/SOL-USD?limit=1',
+    oiRes: 'https://indexer.dydx.trade/v4/candles/perpetualMarkets/SOL-USD?resolution=1HOUR&limit=48'
   };
 
   const results = {};
@@ -59,52 +59,52 @@ async function fetchMarketData() {
     throw new Error('Failed to retrieve market data from public exchange REST nodes.');
   }
 
-  const bybitDaily = results.dailyRes.data;
-  const bybitFourHour = results.fourHourRes.data;
-  const bybitBtc = results.btcRes.data;
-  const bybitFunding = results.fundingRes.data;
-  const bybitOI = results.oiRes.data;
+  const dydxDaily = results.dailyRes.data;
+  const dydxFourHour = results.fourHourRes.data;
+  const dydxBtc = results.btcRes.data;
+  const dydxFunding = results.fundingRes.data;
+  const dydxOI = results.oiRes.data;
 
-  // Map Bybit spot klines to Binance format: [openTime, open, high, low, close, volume, closeTime]
-  // Reversing is REQUIRED because Bybit returns newest first, whereas our math engine expects oldest first (chronological).
-  const dailyKlines = [...bybitDaily.result.list].reverse().map(k => [
-    parseInt(k[0]), // open time
-    k[1], // open
-    k[2], // high
-    k[3], // low
-    k[4], // close
-    k[5], // volume
-    parseInt(k[0]) + 86400000 // dummy close time
+  // Map dYdX candles to Binance format: [openTime, open, high, low, close, volume, closeTime]
+  // Reversing is REQUIRED because dYdX returns newest first, whereas our math engine expects oldest first (chronological).
+  const dailyKlines = [...dydxDaily.candles].reverse().map(c => [
+    new Date(c.startedAt).getTime(), // open time
+    parseFloat(c.open),
+    parseFloat(c.high),
+    parseFloat(c.low),
+    parseFloat(c.close),
+    parseFloat(c.baseTokenVolume),
+    new Date(c.startedAt).getTime() + 86400000 // dummy close time
   ]);
 
-  const fourHourKlines = [...bybitFourHour.result.list].reverse().map(k => [
-    parseInt(k[0]),
-    k[1],
-    k[2],
-    k[3],
-    k[4],
-    k[5],
-    parseInt(k[0]) + 14400000
+  const fourHourKlines = [...dydxFourHour.candles].reverse().map(c => [
+    new Date(c.startedAt).getTime(),
+    parseFloat(c.open),
+    parseFloat(c.high),
+    parseFloat(c.low),
+    parseFloat(c.close),
+    parseFloat(c.baseTokenVolume),
+    new Date(c.startedAt).getTime() + 14400000
   ]);
 
-  const btcKlines = [...bybitBtc.result.list].reverse().map(k => [
-    parseInt(k[0]),
-    k[1],
-    k[2],
-    k[3],
-    k[4],
-    k[5],
-    parseInt(k[0]) + 14400000
+  const btcKlines = [...dydxBtc.candles].reverse().map(c => [
+    new Date(c.startedAt).getTime(),
+    parseFloat(c.open),
+    parseFloat(c.high),
+    parseFloat(c.low),
+    parseFloat(c.close),
+    parseFloat(c.baseTokenVolume),
+    new Date(c.startedAt).getTime() + 14400000
   ]);
   
-  // Map Bybit futures schemas
+  // Map dYdX funding schema: multiply hourly rate by 8 to convert to standard 8-hour rate
   const futuresPremiumIndex = {
-    lastFundingRate: bybitFunding.result.list[0]?.fundingRate || '0'
+    lastFundingRate: (parseFloat(dydxFunding.historicalFunding[0]?.rate || '0') * 8).toString()
   };
   
-  const openInterestHist = [...bybitOI.result.list].reverse().map(item => ({
-    sumOpenInterest: item.openInterest,
-    timestamp: parseInt(item.timestamp)
+  const openInterestHist = [...dydxOI.candles].reverse().map(c => ({
+    sumOpenInterest: parseFloat(c.startingOpenInterest || '0'),
+    timestamp: new Date(c.startedAt).getTime()
   }));
 
   return {
