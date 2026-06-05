@@ -238,9 +238,33 @@ export function calculateForwardReturns(data, rsiValues, currentRSI) {
     return { bulls: null, bears: null, bullThreshold: currentRSI, bearThreshold: 100 - currentRSI };
   }
   
-  // If current RSI is extremely low (e.g., 18), we clamp the threshold to 30 to ensure a valid historical sample.
-  const bullThreshold = Math.max(currentRSI, 30);
-  const bearThreshold = Math.min(100 - currentRSI, 70);
+  // Dynamically widen thresholds only as much as needed to get a minimum sample size
+  const MIN_SAMPLES = 5;
+  let activeBullThreshold = currentRSI;
+  let activeBearThreshold = 100 - currentRSI;
+  
+  const countValidSamples = (threshold, isBull, forwardDays = 90) => {
+    let count = 0;
+    for (let i = 0; i < data.length - forwardDays; i++) {
+      if (rsiValues[i] === null) continue;
+      const isMatch = isBull ? (rsiValues[i] <= threshold) : (rsiValues[i] >= threshold);
+      if (isMatch) count++;
+    }
+    return count;
+  };
+
+  // Expand bull threshold by 0.5 until we hit MIN_SAMPLES (cap at 35)
+  while (activeBullThreshold < 35 && countValidSamples(activeBullThreshold, true) < MIN_SAMPLES) {
+    activeBullThreshold += 0.5;
+  }
+
+  // Expand bear threshold by 0.5 until we hit MIN_SAMPLES (floor at 65)
+  while (activeBearThreshold > 65 && countValidSamples(activeBearThreshold, false) < MIN_SAMPLES) {
+    activeBearThreshold -= 0.5;
+  }
+  
+  const bullThreshold = activeBullThreshold;
+  const bearThreshold = activeBearThreshold;
   
   const forwardPeriods = [
     { label: '3m', days: 90 },
