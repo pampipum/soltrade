@@ -309,6 +309,7 @@ export function calculateForwardReturns(data, rsiValues, currentRSI) {
       aggregated[p.label] = {
         avgGain: g.length > 0 ? g.reduce((a, b) => a + b, 0) / g.length : null,
         avgLoss: l.length > 0 ? l.reduce((a, b) => a + b, 0) / l.length : null,
+        winRate: (g.length + l.length) > 0 ? (g.length / (g.length + l.length)) * 100 : null,
         count: g.length + l.length
       };
     });

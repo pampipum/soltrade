@@ -41,13 +41,25 @@ export default function ForwardReturns({ forwardReturns }) {
                 <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 600, textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '6px' }}>
                   {p.toUpperCase()} <span style={{fontSize:'10px', opacity: 0.5}}>({data.count})</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ color: '#ef4444', fontSize: '12px', fontWeight: 700 }}>
-                    {data.avgLoss !== null ? `${data.avgLoss.toFixed(1)}%` : '-'}
-                  </span>
-                  <span style={{ color: '#22c55e', fontSize: '12px', fontWeight: 700 }}>
-                    {data.avgGain !== null ? `+${data.avgGain.toFixed(1)}%` : '-'}
-                  </span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
+                    <span style={{ color: '#64748b' }}>Win Rate</span>
+                    <span style={{ color: data.winRate >= 50 ? '#22c55e' : '#ef4444', fontWeight: 700 }}>
+                      {data.winRate !== null ? `${Math.round(data.winRate)}%` : '-'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
+                    <span style={{ color: '#64748b' }}>Avg Gain</span>
+                    <span style={{ color: '#22c55e', fontWeight: 700 }}>
+                      {data.avgGain !== null ? `+${data.avgGain.toFixed(1)}%` : '0%'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
+                    <span style={{ color: '#64748b' }}>Avg Loss</span>
+                    <span style={{ color: '#ef4444', fontWeight: 700 }}>
+                      {data.avgLoss !== null ? `${data.avgLoss.toFixed(1)}%` : '0%'}
+                    </span>
+                  </div>
                 </div>
               </div>
             );
@@ -70,7 +82,7 @@ export default function ForwardReturns({ forwardReturns }) {
           </div>
         </div>
         <div style={{ padding: '0 16px 16px 16px', fontSize: '12px', color: '#64748b', lineHeight: '1.5' }}>
-          Displays average positive return (green) and average negative return (red) for historical instances matching current RSI extremes. N counts indicate the number of matching historical samples that had enough forward data to resolve.
+          Displays the win rate (percentage of positive returns), average gain, and average loss for historical instances matching the current RSI condition. Parentheses (N) indicate the number of matching historical samples that had enough forward data.
         </div>
       </div>
     </div>
