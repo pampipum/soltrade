@@ -238,8 +238,9 @@ export function calculateForwardReturns(data, rsiValues, currentRSI) {
     return { bulls: null, bears: null, bullThreshold: currentRSI, bearThreshold: 100 - currentRSI };
   }
   
-  const bullThreshold = currentRSI;
-  const bearThreshold = 100 - currentRSI; // if RSI is 30, bear is 70.
+  // If current RSI is extremely low (e.g., 18), we clamp the threshold to 30 to ensure a valid historical sample.
+  const bullThreshold = Math.max(currentRSI, 30);
+  const bearThreshold = Math.min(100 - currentRSI, 70);
   
   const forwardPeriods = [
     { label: '3m', days: 90 },
