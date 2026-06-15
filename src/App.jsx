@@ -83,7 +83,7 @@ export default function App() {
       // 2. Fetch Futures data (blocked by CORS, routed via proxy with absolute try/catch safety)
       let premiumData = null;
       try {
-        const premiumRes = await fetch('https://corsproxy.io/?https://fapi.binance.com/fapi/v1/premiumIndex?symbol=SOLUSDT');
+        const premiumRes = await fetch('https://fapi.binance.com/fapi/v1/premiumIndex?symbol=SOLUSDT');
         if (premiumRes.ok) {
           premiumData = await premiumRes.json();
         }
@@ -93,7 +93,7 @@ export default function App() {
       
       let oiData = [];
       try {
-        const oiRes = await fetch('https://corsproxy.io/?https://fapi.binance.com/futures/data/openInterestHist?symbol=SOLUSDT&period=1h&limit=48');
+        const oiRes = await fetch('https://fapi.binance.com/futures/data/openInterestHist?symbol=SOLUSDT&period=1h&limit=48');
         if (oiRes.ok) {
           oiData = await oiRes.json();
         }
@@ -212,9 +212,9 @@ export default function App() {
         console.warn('Failed to poll spot BTC feed:', err);
       }
 
-      // 2. Poll futures Premium Index (proxied, fail-safe)
+      // 2. Poll futures Premium Index (direct, CORS enabled)
       try {
-        const premiumRes = await fetch('https://corsproxy.io/?https://fapi.binance.com/fapi/v1/premiumIndex?symbol=SOLUSDT');
+        const premiumRes = await fetch('https://fapi.binance.com/fapi/v1/premiumIndex?symbol=SOLUSDT');
         if (premiumRes.ok) {
           const premiumData = await premiumRes.json();
           setFuturesPremiumIndex(premiumData);
@@ -223,9 +223,9 @@ export default function App() {
         console.warn('Failed to poll futures Premium Index (CORS/Network):', err);
       }
 
-      // 3. Poll futures Open Interest (proxied, fail-safe)
+      // 3. Poll futures Open Interest (direct, CORS enabled)
       try {
-        const oiRes = await fetch('https://corsproxy.io/?https://fapi.binance.com/futures/data/openInterestHist?symbol=SOLUSDT&period=1h&limit=48');
+        const oiRes = await fetch('https://fapi.binance.com/futures/data/openInterestHist?symbol=SOLUSDT&period=1h&limit=48');
         if (oiRes.ok) {
           const oiData = await oiRes.json();
           setOpenInterestHist(oiData);
