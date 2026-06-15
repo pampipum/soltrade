@@ -84,7 +84,7 @@ export default function TriggerChecklist({ checklist, bearSignals, fourHour, pri
             <h2>WEIGHTED SIGNAL SCORE</h2>
           </div>
           <span className={`checklist-score ${activeCount > 0 ? 'score-active' : 'score-zero'}`}>
-            {activeCount}/9 TRIGGERS
+            {activeCount}/{checklistItems.length} TRIGGERS
           </span>
         </div>
 

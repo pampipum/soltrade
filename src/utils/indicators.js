@@ -468,9 +468,9 @@ export function getDashboardState(
     },
     rsiCrossedAbove30: {
       id: 'b',
-      title: 'RSI crossed above 30',
-      active: currentRSI > 30 && prevRSI <= 30,
-      detail: `${currentRSI?.toFixed(1) || 'N/A'} (prev ${prevRSI?.toFixed(1) || 'N/A'})`,
+      title: 'RSI recovered > 30 (7d)',
+      active: currentRSI > 30 && Math.min(...rsiList.slice(len - 8, len - 1).filter(v => v !== null)) <= 30,
+      detail: `${currentRSI?.toFixed(1) || 'N/A'} (was < 30 recently)`,
       cluster: 'momentum'
     },
     higherLow: {
@@ -521,6 +521,13 @@ export function getDashboardState(
       active: isBtcTrendBullish,
       detail: `BTC $${(btcPrice/1e3).toFixed(1)}k vs MA20 $${(btcMA20/1e3).toFixed(1)}k`,
       cluster: 'macro'
+    },
+    historicExtremeRSI: {
+      id: 'j',
+      title: 'RSI at historic extreme (<= 15th pctile)',
+      active: isRSIAtHistoricExtreme,
+      detail: `${rsiPercentile !== null ? rsiPercentile + 'th pctile' : 'N/A'}`,
+      cluster: 'momentum'
     }
   };
 
@@ -540,15 +547,14 @@ export function getDashboardState(
       label: 'Trend Structure',
       max: 20,
       earned:
-        (currentPrice > ma20 ? 8 : 0) +
-        (currentPrice > ma50 ? 7 : 0) +
-        (ma20 > ma50 ? 5 : 0)
+        (currentPrice > ma20 ? 10 : 0) +
+        (currentPrice >= dynamicHigherLowThreshold ? 10 : 0)
     },
     momentum: {
       label: 'RSI Momentum',
       max: 15,
       earned:
-        (currentRSI > 30 && prevRSI <= 30 ? 8 : 0) +
+        (currentRSI > 30 && Math.min(...rsiList.slice(len - 8, len - 1).filter(v => v !== null)) <= 30 ? 8 : 0) +
         (isRSIAtHistoricExtreme ? 7 : 0)
     },
     candle: {
